@@ -39,7 +39,7 @@
 
 1. 安装 [Tampermonkey](https://www.tampermonkey.net/)（Chrome/Edge/Firefox）
 2. 将 `wq2pdf_capture.user.js` 拖入油猴脚本管理页面并安装
-3. 打开文泉书局任意书籍阅读页（`https://wqbook.wqxuetang.com/deep/read/*`），左下角出现控制面板即表示加载成功
+3. 打开文泉书局任意书籍阅读页（`https://wqbook.wqxuetang.com/deep/read/*`），左下角出现控制面板即成功加载
 
 ### 2. 本地端（Python 脚本）
 
@@ -166,10 +166,10 @@ python wq2pdf_reconstruct.py <bid>.zip
 
 ## 参考项目
 
-[文泉书局电子书PDF下载](https://github.com/Soooda/wqbook_pdf_spider)；
-[文泉书局导出PDF](https://github.com/xxlllq/PDFBooks)；
-[wenquanshuju-pdf-downloader](https://github.com/WorkerAmo/wenquanshuju-pdf-downloader)；
-[WQBookDownloader](https://github.com/zzsskyh/WQBookDownloader)；
+- [文泉书局电子书PDF下载](https://github.com/Soooda/wqbook_pdf_spider)；
+- [文泉书局导出PDF](https://github.com/xxlllq/PDFBooks)；
+- [wenquanshuju-pdf-downloader](https://github.com/WorkerAmo/wenquanshuju-pdf-downloader)；
+- [WQBookDownloader](https://github.com/zzsskyh/WQBookDownloader)；
 
 ---
 
