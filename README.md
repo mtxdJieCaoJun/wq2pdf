@@ -2,8 +2,8 @@
 
 >
 > **本项目仅用于个人学习**
-> 本项目不存储、不分发任何受版权保护的内容；
->使用本项目获取的内容应于24小时内删除。
+> 本项目不存储或分发任何受版权保护的内容；
+> 所有获取的内容应于24小时内删除。
 ---
 
 ## 项目简介
@@ -166,10 +166,10 @@ python wq2pdf_reconstruct.py <bid>.zip
 
 ## 参考项目
 
-[文泉书局电子书PDF下载](https://github.com/Soooda/wqbook_pdf_spider)
-[文泉书局导出PDF](https://github.com/xxlllq/PDFBooks)
-[wenquanshuju-pdf-downloader](https://github.com/WorkerAmo/wenquanshuju-pdf-downloader)
-[WQBookDownloader](https://github.com/zzsskyh/WQBookDownloader)
+[文泉书局电子书PDF下载](https://github.com/Soooda/wqbook_pdf_spider)；
+[文泉书局导出PDF](https://github.com/xxlllq/PDFBooks)；
+[wenquanshuju-pdf-downloader](https://github.com/WorkerAmo/wenquanshuju-pdf-downloader)；
+[WQBookDownloader](https://github.com/zzsskyh/WQBookDownloader)；
 
 ---
 
