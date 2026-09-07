@@ -1,132 +1,184 @@
-# wq2pdf_reconstruct.py
+# wq2pdf — 文泉书局切片捕获与 PDF 还原工具
 
-文泉书局 deep/read 切片 → 复原整页图 → 合并为完整 PDF（含自动目录书签）。
+>
+> **本项目仅用于个人学习**
+> 本项目不存储、不分发任何受版权保护的内容；
+>使用本项目获取的内容应于24小时内删除。
+---
 
-油猴脚本 `wq2pdf.user.js` 负责从浏览器捕获切片并打包（`csv` + `img/`），本脚本是离线还原部分（Python，无浏览器依赖）。
+## 项目简介
+
+**wq2pdf** 是一套适用于 [文泉书局](https://wqbook.wqxuetang.com) 在线阅读器的切片捕获与 PDF 还原工具，包含：
+
+| 组件 | 说明 |
+| --- | --- |
+| `wq2pdf_capture.user.js` | 油猴（Tampermonkey）脚本，静默捕获阅读页切片 |
+| `wq2pdf_reconstruct.py` | Python 脚本，将捕获的切片重组为带目录书签的 PDF |
+| `requirements.txt` | Python 依赖 |
+
+>只有购买电子书后才能获取全部内容，否则仅能获取前30页试读部分。
 
 ---
 
-## 输入
+## 特性
 
-油猴脚本导出的切片压缩包 `<bid>.zip`：
+- **零网络请求捕获**：优先读取浏览器 HTTP 缓存中的原始图片字节
+- **Canvas 兜底**：缓存不可用时，通过 `<canvas>` 转 JPEG（q0.95）
+- **自动目录书签**：自动抓取 `catatree` 目录接口，生成 PDF 书签层级
+- **智能灰度检测**：自动判断页面是否为黑白内容，可一键全彩/全灰
+- **多标签页互斥**：同一浏览器只允许一个标签页捕获，避免数据混乱
+- **自动滚动翻页**：内置自动滚动模式，整本书无人值守捕获
+- **限速/占位图检测**：通过 16×16 指纹统计，识别疑似重复占位图
+- **参数化命名**：按实际使用的格式、灰度模式、书签状态自动命名产物
 
-```
-<bid>.zip
-├── <bid>.csv             每页一行:  页码,matrix(...)   (UTF-8 带 BOM, csv 双引号转义)
-├── img/
-│   └── pNNNN_MM.webp    切片；MM = 显示序(left 升序 rank)，每页 6 片，MM 升序即拼接顺序
-└── toc.json              (可选) 油猴 0.0.5a+ 随包打包的目录快照
-```
+---
 
-脚本自动解压到 zip 同级的 `<bid>/` 目录（工作目录名取自 zip 内的 csv 名），**所有中间文件与产出都保存在该目录内**；已解压则自动跳过（`--reextract` 强制重解）。也支持直接传已解压的目录作为输入。
+## 安装
 
-`csv` 第二列为页面变换方式（`matrix(...)`），决定整图旋转回正的方向：
-- `matrix(-1, 0, 0, -1, 0, 0)` → `flip` → 整图旋转 180°
-- `matrix(0, -1, 1, 0, 0, 0)`   → `rot90` → 整图逆时针旋转 90°
+### 1. 浏览器端（油猴脚本）
 
-## 重建流水线
+1. 安装 [Tampermonkey](https://www.tampermonkey.net/)（Chrome/Edge/Firefox）
+2. 将 `wq2pdf_capture.user.js` 拖入油猴脚本管理页面并安装
+3. 打开文泉书局任意书籍阅读页（`https://wqbook.wqxuetang.com/deep/read/*`），左下角出现控制面板即表示加载成功
 
-1. 每页 6 片按显示序（文件名后缀 `01→06`）从左到右横向拼成"乱序"完整图，再整图旋转回正；
-2. 判断灰度后直接把复原整页存为目标编码（默认 JPEG q95 + 4:4:4；非 JPEG 输入一律转 JPEG）。
-   灰页存 DeviceGray、彩页存 RGB；`--img-format png` 可切 PNG 真无损；
-3. `img2pdf` 原样直嵌基础 PDF（JPEG→DCTDecode / PNG→FlateDecode，零二次压缩）；
-4. 目录按 zip 内 → 文件夹内 → 接口的顺序获取（见下），用 PyMuPDF `set_toc` 写入书签（图像流原样保留，不重压）；
-5. 产物按实际使用的参数命名（见"产物命名规则"）。
-
-## 灰度判定
-
-参数 `--gray-mode`：
-
-| 值 | 含义 | 后缀标记 |
-|---|---|---|
-| `1`  | 全彩（fulc）：强制 RGB，不判灰 | `fulc` |
-| `0`  | 自动（auto，默认）：按阈值判定 | `auto` |
-| `-1` | 全灰（gray）：所有页强制灰度 | `gray` |
-
-自动判据（2026-09 按用户视觉范例标定）：
-
-> 色差 `Δ = |R-G| + |G-B|` 超过 `--gray-delta`（默认 48）的像素占比 < `--gray-frac`（默认 0.01 = 1%）即视为无彩页，转灰度。
-
-扫描正文页那种带淡纸纹/噪点的"视觉灰页"会正确转灰（实测 p150 = 0.49%、p288 = 0.57% 彩像素），封面等真彩页（p1 = 71%）会保留彩色。微调阈值：`--gray-delta`、`--gray-frac`。
-
-非 JPEG 输入的图片一律先判灰再转 JPEG（步骤 2 一步到位，无 PNG 中转）。
-
-## 目录获取（书签）
-
-优先级：
-
-1. **zip 内 `toc.json`**（油猴随包快照，解压前直接读取，最高优先）
-2. **文件夹内**（工作目录）：`toc.json` > `<bid>_toc.json`（本脚本接口缓存）
-3. **文泉 `catatree` 接口**（匿名可访问），获取成功后自动写入 `<bid>/<bid>_toc.json` 缓存，下次离线可用
-
-- 接口：`https://wqbook.wqxuetang.com/deep/book/v1/catatree?bid=<bid>`，返回 `{code:0, data:[{level, label, pnum, children}]}`
-- `--toc-json <文件>`：显式指定本地 JSON，优先级最高
-- `--toc-cookie "..."`：接口需要登录时携带 Cookie
-- `--no-toc`：跳过书签
-
-接口失败时降级为无书签 PDF，不影响主体重建。
-
-## 产物命名规则
-
-按实际使用参数拼接后缀（格式在前，jpg_gray 风格）；纯默认（auto + jpeg + 有目录）只保留 `bid`。
-
-| 命令 | PDF | 页面图目录 |
-|---|---|---|
-| 默认（有目录） | `<bid>/<bid>.pdf` | `<bid>/<bid>_jpg/` |
-| `--gray-mode -1` | `<bid>/<bid>_jpg_gray.pdf` | `<bid>/<bid>_jpg_gray/` |
-| `--gray-mode 1` | `<bid>/<bid>_jpg_fulc.pdf` | `<bid>/<bid>_jpg_fulc/` |
-| `--img-format png` | `<bid>/<bid>_png.pdf` | `<bid>/<bid>_png/` |
-| `--gray-mode 1 --img-format png --no-toc` | `<bid>/<bid>_png_fulc_ntoc.pdf` | `<bid>/<bid>_png_fulc_ntoc/` |
-
-页面图目录默认 = `<bid>_<jpg|png>[<_fulc|_auto|_gray>][_ntoc]`，PDF 与页面图目录同级，均在 `<bid>/` 内。
-
-**`ntoc` 自动追加**：只要最终没有目录（显式 `--no-toc`，或 zip/文件夹/接口三处都没取到），产物名自动加 `ntoc` 后缀——无需手动传参。
-
-## 用法
+### 2. 本地端（Python 脚本）
 
 ```bash
-python wq2pdf_reconstruct.py 3224451.zip                      # 默认: jpeg+自动灰+目录 → 3224451/3224451.pdf
-python wq2pdf_reconstruct.py 3224451.zip --gray-mode -1       # 强制全灰 → 3224451/3224451_jpg_gray.pdf
-python wq2pdf_reconstruct.py 3224451.zip --gray-mode 1        # 全彩 → 3224451/3224451_jpg_fulc.pdf
-python wq2pdf_reconstruct.py 3224451.zip --img-format png     # PNG 无损 → 3224451/3224451_png.pdf
-python wq2pdf_reconstruct.py 3224451.zip --gray-mode 0 --gray-delta 48 --gray-frac 0.01
-python wq2pdf_reconstruct.py 3224451.zip --jpeg-quality 90
-python wq2pdf_reconstruct.py 3224451.zip --pages 1-3,5
-python wq2pdf_reconstruct.py 3224451.zip --preview 1,2,291    # 快速预览指定页,只存 PNG → <bid>/preview/
-python wq2pdf_reconstruct.py 3224451.zip --reextract          # 强制重新解压覆盖
-python wq2pdf_reconstruct.py 3224451.zip --toc-json toc.json  # 用指定本地目录 JSON
-python wq2pdf_reconstruct.py 3224451.zip --no-toc             # 不要书签 → ..._ntoc
-```
+# （可选）创建并激活 conda 环境（推荐）
+conda create -n wq2pdf python=3.11
+conda activate wq2pdf
 
-## 参数速查
-
-| 参数 | 默认 | 说明 |
-|---|---|---|
-| `bid_zip` | （必填） | 油猴导出的 `<bid>.zip`（也接受已解压目录） |
-| `-o/--out` | 按参数命名 | 输出 PDF 路径（默认 `<bid>/<bid>[后缀].pdf`） |
-| `--png-dir` | 按参数命名 | 整页图输出目录（默认 `<bid>/<参数名>/`） |
-| `--reextract` | 关 | 强制重新解压（默认已解压则跳过） |
-| `--pages` | 全部 | 只处理指定页，如 `1-3,5` |
-| `--preview` | — | 只重建这些页并存 PNG（目检用） |
-| `--img-format` | `jpeg` | `jpeg`(非JPEG自动转) / `png`(真无损) |
-| `--jpeg-quality` | `95` | JPEG 质量 |
-| `--jpeg-subsampling` | `0` | `0`=4:4:4(文字最清晰) / `1`=4:2:2 / `2`=4:2:0 |
-| `--gray-mode` | `0` | `1`=全彩 / `0`=自动 / `-1`=全灰 |
-| `--gray-delta` | `48` | 自动灰度判据：色差超此值计为彩像素 |
-| `--gray-frac` | `0.01` | 自动灰度判据：彩像素占比低于此值才转灰 |
-| `--dpi` | `300` | PDF 像素→物理尺寸比例 |
-| `--no-toc` / `--toc-json` / `--toc-cookie` | — | 目录书签控制（互斥组） |
-
-## 依赖
-
-Python ≥ 3.9，依赖见 `requirements.txt`：
-
-```bash
+# 安装依赖
 pip install -r requirements.txt
 ```
 
-| 包 | 用途 |
-|---|---|
-| `pillow` | 切片拼合 / 旋转回正 / 灰度判定 / JPEG·PNG 编码 |
-| `img2pdf` | 页面图原样直嵌 PDF（JPEG→DCTDecode，PNG→FlateDecode） |
-| `pymupdf` | 写入 PDF 目录书签（Outlines） |
+依赖说明：
+
+- `Pillow>=12.3.0` — 图像拼合、旋转、灰度检测
+- `img2pdf>=0.6.3` — 图片直嵌生成 PDF（无损 DCT 编码）
+- `pymupdf>=1.28.2` — PDF 书签写入（仅在需要目录时引入）
+
+---
+
+## 使用流程
+
+### Step 1：浏览器中捕获切片
+
+1. 打开文泉书局，进入目标书籍的阅读页
+2. 脚本自动开始捕获当前阅读范围内的切片，左下角面板实时显示进度
+3. **正常阅读/滚动**即可，切片会随页面滚动自动入库；或点击 **「⏬ 自动滚动」** 
+4. 阅读完毕后，点击 **「📦 打包下载」**，得到 `<bid>.zip`，内含：
+- `<bid>.csv` — 页码与变换方式对照表
+- `img/pNNNN_MM.webp` — 切片图片
+- `<bid>_toc.json` — 目录快照
+- `WARNING.txt` — 异常提示（如有缺片或疑似占位图）
+
+> 使用 IndexedDB 本地存储，刷新页面不丢失已捕获数据；
+>多标签页同时打开时，只捕获最后处于活动的标签页。
+
+### Step 2：本地重组为 PDF
+
+```bash
+# 基础用法：自动解压、拼合、生成带书签的 PDF
+python wq2pdf_reconstruct.py <bid>.zip
+```
+
+---
+
+## 技术细节
+
+### 切片与变换
+
+文泉书局将每一页旋转90°~180°后，拆分为6个左右排列的切片，在阅读器对整组切片做统一变换回原图：
+
+| 变换矩阵 | 含义 |
+| --- | --- |
+| `matrix(-1, 0, 0, -1, 0, 0)` | 180° 翻转 |
+| `matrix(0, -1, 1, 0, 0, 0)` | 顺时针 90° |
+
+脚本先按 `left` 坐标从左到右拼合切片，再整图旋转回正。
+
+### 目录书签层级
+
+自动请求 `/deep/book/v1/catatree?bid={bid}` 接口，解析 `label`（标题）、`level`（层级）、`pnum`（页码）生成 PyMuPDF 兼容的 `[level, title, page]` 书签列表。支持嵌套子章节。
+
+### `wq2pdf_reconstruct.py`参数详解
+
+| 参数 | 类型 | 说明 | 取值范围 | 默认 / 示例 |
+| --- | --- | --- | --- | --- |
+| `bid_zip` | 路径 | 油猴导出的切片压缩包，或已解压工作目录 | `<bid>.zip` 或已解压工作目录 | `<bid>.zip` |
+| `-o, --out` | 路径 | 输出 PDF 路径 | 任意可写路径 | `<bid>/<bid>.pdf` |
+| `--png-dir` | 路径 | 整页图输出目录 | 任意目录 |  e.g. `<bid>/<参数名>/` |
+| `--reextract` | 开关 | 强制重新解压（已解压则默认跳过） | 出现即强制重解压 | e.g. `--reextract` |
+| `--pages` | 字符串 | 只处理指定页 | 页码 `1~总页数`，形如 `1-3,5` | e.g. `--pages 1-3,5,6-9` |
+| `--preview` | 字符串 | 仅重建这些页并存 PNG（不输出 PDF，目检用） | 同 `--pages` | e.g. `--preview 1,2,291` |
+| `--img-format` | 枚举 | 整页图/PDF 内嵌编码 | `jpeg` 或 `png` | `--img-format jpeg` |
+| `--jpeg-quality` | int | JPEG 质量（越高越清晰、体积越大） | `1`~`100` | `--jpeg-quality 95` |
+| `--jpeg-subsampling` | int | 色度抽样（影响彩色文字清晰度） | `0`（无损4:4:4）/`1`（4:2:2）/`2`（4:2:0）（默认 `0`） | `--jpeg-subsampling 0` |
+| `--gray-mode` | int | 灰度模式 | `1`=全灰 / `0`=全彩 / 其他值或缺省=自动 | e.g. `--gray-mode 1` |
+| `--gray-delta` | int | 自动判灰的色差阈值 | `0`~`255` | `--gray-delta 48` |
+| `--gray-frac` | float | 自动判灰的彩像素百分比阈值 | `0`~`1` | `--gray-frac 0.01` |
+| `--dpi` | float | PDF 像素到物理尺寸比例（决定页面物理大小） | `>0`（常用 72~600；） | `--dpi 300` |
+| `--no-toc` | 开关 | 不获取/不添加目录书签 | 出现即不加书签 | e.g. `--no-toc` |
+| `--toc-json` | 路径 | 从指定本地 JSON 读目录 | 存在的本地目录 JSON | e.g. `--toc-json ./toc.json` |
+| `--toc-cookie` | 字符串 | 请求目录接口时携带的 Cookie | 任意 Cookie 串 | e.g. `--toc-cookie "sessionid=xxx"` |
+
+---
+
+## 产物命名规则
+
+脚本按**实际生效参数**自动命名：
+
+| 场景 | PDF 文件名 | 整页图目录名 |
+| --- | --- | --- |
+| 全部默认 | `<bid>.pdf` | `<bid>_jpg/` |
+| `--img-format png` | `<bid>_png.pdf` | `<bid>_png/` |
+| `--gray-mode 1` | `<bid>_jpg_gray.pdf` | `<bid>_jpg_gray/` |
+| `--img-format png --gray-mode 0` | `<bid>_png_fulc.pdf` | `<bid>_png_fulc/` |
+| `--no-toc`（获取失败 ） | 自动追加 `_ntoc` | 自动追加 `_ntoc` |
+
+---
+
+## 文件结构
+
+```javascript
+.
+├── wq2pdf_capture.user.js    # 油猴捕获脚本
+├── wq2pdf_reconstruct.py     # PDF 还原脚本
+├── requirements.txt          # Python 依赖
+└── README.md                 # 本文件
+```
+
+---
+
+## 许可与声明
+
+本项目采用 MIT 许可证。代码仅供学习与技术研究。
+
+**郑重声明**：
+- 本工具仅为个人学习项目分享
+- 只有**已合法购买或取得授权**的用户才能获取全部内容
+- 生成的 PDF **仅限个人离线备份与学习使用**
+- 产物应于24小时内删除，且**严禁**用于商业用途、无偿分享或公开传播
+- 使用者须自行承担因违反平台服务条款或版权法而产生的法律责任
+
+---
+
+## 参考项目
+
+[文泉书局电子书PDF下载](https://github.com/Soooda/wqbook_pdf_spider)
+[文泉书局导出PDF](https://github.com/xxlllq/PDFBooks)
+[wenquanshuju-pdf-downloader](https://github.com/WorkerAmo/wenquanshuju-pdf-downloader)
+[WQBookDownloader](https://github.com/zzsskyh/WQBookDownloader)
+
+---
+
+## 第三方开源组件许可
+
+本项目本身以 **MIT 许可证**发布，但运行时依赖以下第三方开源组件，其许可证条款随组件一同生效：
+
+| 组件 | 版本要求 | 许可证全文 |
+| --- | --- | --- |
+| [Pillow](https://github.com/python-pillow/Pillow) | ≥12.3.0 | [LICENSE](https://github.com/python-pillow/Pillow/blob/main/LICENSE) |
+| [img2pdf](https://github.com/josch/img2pdf) | ≥0.6.3 | [GNU LGPL v3](https://www.gnu.org/licenses/lgpl-3.0.html) |
+| [PyMuPDF](https://github.com/pymupdf/PyMuPDF) | ≥1.28.2 | [GNU AGPL v3](https://www.gnu.org/licenses/agpl-3.0.html) |

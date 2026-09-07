@@ -19,7 +19,13 @@ ROT90_MATRIX = "matrix(0, -1, 1, 0, 0, 0)"
 CATATREE_URL = "https://wqbook.wqxuetang.com/deep/book/v1/catatree?bid={bid}"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-GRAY_TOK = {1: "fulc", 0: "auto", -1: "gray"}
+def gray_token(gm: int | None) -> str:
+    """灰度模式命名后缀: 1=全灰(gray) | 0=全彩(fulc) | 其他/None=自动(auto)。"""
+    if gm == 1:
+        return "gray"
+    if gm == 0:
+        return "fulc"
+    return "auto"
 
 
 #  解析
@@ -240,17 +246,17 @@ def is_grayscale(im: Image.Image, delta: int = 48, frac: float = 0.01) -> bool:
 
 def save_page_image(im: Image.Image, path: Path, fmt: str,
                     quality: int = 95, subsampling: int = 0,
-                    gray_mode: int = 0, gray_delta: int = 48,
+                    gray_mode: int = 2, gray_delta: int = 48,
                     gray_frac: float = 0.01) -> bool:
-    """按 fmt 落盘复原整页（判灰后一步到位转目标格式）。gray_mode: 1=全彩/0=自动/-1=全灰。返回是否以灰度保存。"""
+    """按 fmt 落盘复原整页（判灰后一步到位转目标格式）。gray_mode: 1=全灰/0=全彩/其他=自动。返回是否以灰度保存。"""
     if gray_mode == 1:
+        gray = True
+        if im.mode != "L":
+            im = im.convert("L")  # 强制全灰
+    elif gray_mode == 0:
         gray = False
         if im.mode == "L":
             im = im.convert("RGB")  # 强制全彩
-    elif gray_mode == -1:
-        gray = True
-        if im.mode != "L":
-            im = im.convert("L")
     else:  # 自动
         gray = im.mode == "L" or is_grayscale(im, gray_delta, gray_frac)
         if gray and im.mode != "L":
@@ -313,7 +319,7 @@ def product_names(bid: str, fmt: str, gray_mode: int,
     ntoc = 实际无目录（显式 --no-toc 或目录获取失败），此时自动追加 ntoc 后缀。
     """
     fmt_tok = "jpg" if fmt == "jpeg" else "png"
-    gray_tok = GRAY_TOK[gray_mode]
+    gray_tok = gray_token(gray_mode)
     explicit = explicit_fmt or explicit_gray or ntoc
     pdf_toks: list[str] = []
     if explicit:
@@ -366,8 +372,8 @@ def main() -> None:
     ap.add_argument("--jpeg-quality", type=int, default=95, help="jpeg 质量（默认 95）")
     ap.add_argument("--jpeg-subsampling", type=int, default=0,
                     help="jpeg 色度抽样: 0=4:4:4 不抽样(默认, 文字最清晰) / 1=4:2:2 / 2=4:2:0")
-    ap.add_argument("--gray-mode", type=int, choices=(1, 0, -1), default=None,
-                    help="灰度模式: 1=全彩(fulc) | 0=自动(auto, 默认) | -1=全灰(gray)")
+    ap.add_argument("--gray-mode", type=int, default=None,
+                    help="灰度模式: 1=全灰(gray) | 0=全彩(fulc) | 其他/缺省=自动(auto, 默认)")
     ap.add_argument("--gray-delta", type=int, default=48,
                     help="自动判据: 色差Δ=|R-G|+|G-B| 超此值计为彩像素（默认 48）")
     ap.add_argument("--gray-frac", type=float, default=0.01,
@@ -405,7 +411,7 @@ def main() -> None:
 
     # 解析有效参数（None = 未显式传参，走默认并影响命名）
     fmt = args.img_format if args.img_format else "jpeg"
-    gray_mode = args.gray_mode if args.gray_mode is not None else 0
+    gray_mode = args.gray_mode if args.gray_mode is not None else 2
     explicit_fmt = args.img_format is not None
     explicit_gray = args.gray_mode is not None
 
